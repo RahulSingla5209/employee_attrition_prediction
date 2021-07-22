@@ -3,62 +3,72 @@ rm(list = ls())
 library(infotheo)
 library(dplyr)
 library(ggplot2)
+library(corrplot)
 
 input_data = read.csv('archive/employee_attrition_train.csv', header = T)
 
+## remove dummy variables
+
+# empolyee count, Ober18, Standard hours
+input_data = input_data[, -c(9, 22, 27)]
+
+num_obs = dim(input_data)[1]
+
+X = input_data[,-2]
+Y = input_data[,2]
+
+# fix dataframe types
+categorical_var_indices = c(2, 4, 6, 7, 9, 10, 12, 13, 14, 
+                            15, 16, 20, 22, 23, 24, 27)
+
+for (i in categorical_var_indices){
+  X[,i] = as.factor(X[,i])
+  X[is.na(X[,i]),i] <- mode(X[,i])
+}
+for (i in seq(dim(X)[2])){
+  if(!i %in% categorical_var_indices)
+  {
+    X[,i] = as.numeric(X[,i])
+    X[is.na(X[,i]),i] <- median(X[,i], na.rm = T)
+  }
+}
+
+Y = as.factor(Y)
+
 ### EDA
-input_data %>% ggplot(aes(x = Attrition, y = Age)) + geom_boxplot()
-input_data %>% ggplot(aes(x = Attrition, y = MonthlyIncome)) + geom_boxplot()
-input_data %>% ggplot(aes(x = Attrition, y = YearsInCurrentRole)) + geom_boxplot()
-input_data %>% ggplot(aes(x = Attrition, y = YearsWithCurrManager)) + geom_boxplot()
-
-input_data$Over18 = as.factor(input_data$Over18)
-summary(input_data$Over18)
-
-input_data$EmployeeCount = as.factor(input_data$EmployeeCount)
-summary(input_data$EmployeeCount)
-
-input_data$StandardHours = as.factor(input_data$StandardHours)
-summary(input_data$StandardHours)
-
-input_data$JobRole = as.factor(input_data$JobRole)
-summary(input_data$JobRole)
-
-categorical_var = c('BusinessTravel', 'Department', 'Education', 'EducationField',
-                    'Gender', 'JobInvolvement', 'JobLevel', 'JobRole', 'JobSatisfaction',
-                    'MaritalStatus', 'OverTime', 'PerformanceRating', 'StockOptionLevel',
-                    'RelationshipSatisfaction', 'WorkLifeBalance')
-
-
-
-X <- input_data[,-2]
-Y <- input_data[,2]
-
-logIncome = log(input_data$MonthlyIncome)
-X$MonthlyIncome = logIncome
-
-categorical_var_indices = c(2, 4, 6, 7, 10, 11, 13, 14, 15, 16, 17, 22, 24, 
-                            25, 27, 30)
+input_data %>% 
+  ggplot(aes(x = Attrition, y = MonthlyIncome, color = Attrition)) + 
+  geom_boxplot() + ylab("Monthly  Income($)")
+input_data %>% 
+  ggplot(aes(x = Attrition, y = YearsAtCompany, color = Attrition)) + 
+  geom_boxplot() + ylab("Years at Current Company")
+input_data %>% 
+  ggplot(aes(x = Attrition, y = YearsWithCurrManager, color = Attrition)) + 
+  geom_boxplot() + ylab("Years with Current Manager")
 
 mi = data.frame(var = character(), score = double())
 
-for (i in 1:34)
+for (i in 1:dim(X)[2])
 {
+  if(i == 3) next
   new_data = data.frame(var = names(X)[i], score = mutinformation(X[,i], Y))
   mi = rbind(mi, new_data)
 }
 
-### Categorical data 
+### Categorical data correlation
 
-n = length(categorical_var)
+n = length(categorical_var_indices)
 
 high_corr = data.frame(var1 = character(),
                   var2 = character(),
                   p_value = double())
-for (i in 1:n)
+for (i in seq(n))
 {
-  for (j in i+1:n)
+  for (j in seq(i+1, n))
   {
+    if(j > n) next
+    if(i > n) next
+    
     a = categorical_var_indices[i]
     b = categorical_var_indices[j]
     chi <- chisq.test(table(X[,c(a, b)]))
@@ -75,12 +85,12 @@ for (i in 1:n)
 ### numerical correlation
 
 var_count = dim(X)[2]
-
-for (i in seq(34))
+p = dim(X)[2]
+for (i in seq(p))
 {
-  for (j in seq(i+1,34))
+  for (j in seq(i+1,p))
   {
-    if(j > 34)
+    if(j > p)
     {
       next
     }
@@ -88,10 +98,6 @@ for (i in seq(34))
     {
       next
     }
-    X[,i] = as.numeric(X[,i])
-    X[is.na(X[,i]),i] <- mean(X[,i], na.rm = T)
-    X[,j] = as.numeric(X[,j])
-    X[is.na(X[,j]),j] <- mean(X[,j], na.rm = T)
     pearson_corr <- cor.test(X[,i], X[,j], alternative = "two.sided")
     if(!is.na(pearson_corr$p.value))
     {
@@ -106,50 +112,108 @@ for (i in seq(34))
   }
 }
 
-for (i in categorical_var_indices){
-  X[,i] = as.factor(X[,i])
-}
-for (i in seq(dim(X)[2])){
-  if(!i %in% categorical_var_indices)
-  {
-    X[,i] = as.numeric(X[,i])
-    X[is.na(X[,i]),i] <- median(X[,i], na.rm = T)
-  }
-    
-}
-
-
 processed_data = cbind(X,Y)
 
-processed_data$Y = as.factor(processed_data$Y)
+train_size = 0.8
+train_indices = sample(num_obs, num_obs * train_size)
 
-glm.fit = glm('Y ~ . - Over18 - StandardHours - EmployeeCount', data = processed_data, family = "binomial")
-glm.probs <- predict(glm.fit,type = "response")
+wt = rep(1, num_obs * train_size)
+wt[Y[train_indices] == "Yes"] = 3
 
+
+######### logistic fitting - baseline ################
+glm.fit = glm(Y ~ ., data = processed_data, family = "binomial", 
+              subset = train_indices)
+glm.probs <- predict(glm.fit,type = "response", 
+                     newdata = processed_data[-train_indices,])
+glm.pred <- ifelse(glm.probs > 0.35, "Yes", "No")
+table(glm.pred, Y[-train_indices])
+plot_df = data.frame(glm.probs, Y[-train_indices])
+plot_df %>% 
+  ggplot(aes(x = glm.probs, color = Y..train_indices.)) + 
+  geom_boxplot() + xlab("logistic regression output") + 
+  labs(color = "Attrition")
+
+######## logistic fitting - with different class weights ###############
+
+
+glm.fit1 = glm(Y ~ ., data = processed_data[train_indices,], 
+              family = "binomial", weights = wt)
+glm.probs <- predict(glm.fit1,type = "response", 
+                     newdata = processed_data[-train_indices,])
+glm.pred <- ifelse(glm.probs > 0.35, "Yes", "No")
+table(glm.pred, Y[-train_indices])
+plot_df = data.frame(glm.probs, Y[-train_indices])
+plot_df %>% 
+  ggplot(aes(x = glm.probs, color = Y..train_indices.)) + 
+  geom_boxplot() + xlab("logistic regression output") + 
+  labs(color = "Attrition") +
+  geom_vline(xintercept = 0.35) +
+  annotate(geom="text", x=0.55, y=-0.05, 
+           label="Decision Boundary", color="black")
+
+#############backward with validation set - without interaction##########
+lr_models2 = model.matrix(Y ~ ., data = processed_data)
+lr_models2 = data.frame(Y, lr_models2)
+
+lr_models_train1 = lr_models2[train_indices,]
+lr_models_test1 = lr_models2[-train_indices,]
+
+full2 = glm(Y ~ ., data = lr_models_train1, 
+            family = "binomial", weights = wt)
+null2 = glm(Y ~ 1, data = lr_models_train1, 
+            family = "binomial", weights = wt)
+regBackward1 = step(full2, direction="backward", k = log(num_obs))
+glm.probs <- predict(regBackward1,type = "response", 
+                     newdata = lr_models_test1)
+glm.pred <- ifelse(glm.probs > 0.35, "Yes", "No")
+table(glm.pred, Y[-train_indices])
+plot_df = data.frame(glm.probs, Y[-train_indices])
+plot_df %>% 
+  ggplot(aes(x = glm.probs, color = Y..train_indices.)) + 
+  geom_boxplot() + xlab("logistic regression output") + 
+  labs(color = "Attrition") +
+  geom_vline(xintercept = 0.35) +
+  annotate(geom="text", x=0.55, y=-0.05, 
+           label="Decision Boundary", color="black")
+
+######## lr mode with interaction ##############
+
+## forward
+lr_models = model.matrix(Y ~ . * Gender, 
+                         data = processed_data)
+lr_models = data.frame(Y, lr_models)
+
+lr_models_train = lr_models[train_indices,]
+lr_models_test = lr_models[-train_indices,]
+
+full1 = glm(Y ~ ., data = lr_models_train, 
+            family = "binomial", weights = wt)
+null1 = glm(Y ~ 1, data = lr_models_train, 
+           family = "binomial", weights = wt)
+
+regForward1 = step(null1, scope=formula(full1), direction="both", 
+                   k = log(num_obs))
+glm.probs <- predict(regForward1,type = "response", 
+                     newdata = lr_models_test)
 glm.pred <- ifelse(glm.probs > 0.5, "Yes", "No")
+table(glm.pred, Y[-train_indices])
 
-table(glm.pred, Y)
-
-cleaned_data = processed_data[,-c(3, 8, 9, 11, 19, 21, 24, 26)]
-# removed over18, empoyee count, employee number, standard hours, 
-# gender, performance rating -> increased yes prediction
-# removed daily rate and monthly rate - box plots
-
-glm.fit = glm('Y ~ .', data = cleaned_data, family = "binomial")
-glm.probs <- predict(glm.fit, type = "response")
-
+#backward with validation set
+regBackward = step(full1, direction="backward", k = log(num_obs))
+glm.probs <- predict(regBackward,type = "response", 
+                     newdata = lr_models_test)
 glm.pred <- ifelse(glm.probs > 0.5, "Yes", "No")
+table(glm.pred, Y[-train_indices])
 
-table(glm.pred, Y)
-# variables to be dropped 
-##  Over18, Employee Count, Standard Hours - only one value.
-##  Employee number can also be dropped - It looks like it is nothing but employee id
-##  hourly rate, daily rate, or monthly rate - Master variable monthly income can be used instead
-##  Job Role is nothing but combination of Department and Job level. To me it looks like redundant variable. 
+plot_df = data.frame(glm.probs, Y[-train_indices])
+plot_df %>% 
+  ggplot(aes(x = glm.probs, color = Y..train_indices.)) + 
+  geom_boxplot() + xlab("logistic regression output") + 
+  labs(color = "Attrition") +
+  geom_vline(xintercept = 0.35) +
+  annotate(geom="text", x=0.55, y=-0.05, 
+           label="Decision Boundary", color="black")
 
-# variables to be log transformed - 
-##   Monthly income - operating with dollar value. best scaling strategy is log transformation
-
-# Variable to be scaled
-##   Age, Rate, DistancefromHome, EmployeeNumber, PercentageHike, 
-##   TotalWorkingHours, YearsAtCompany, YearsInCurrentRole
+mat  = cor(X[,-categorical_var_indices])
+corrplot(mat, method="circle")
