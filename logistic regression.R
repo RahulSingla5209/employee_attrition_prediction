@@ -4,6 +4,7 @@ library(infotheo)
 library(dplyr)
 library(ggplot2)
 library(corrplot)
+library(glmnet)
 
 input_data = read.csv('archive/employee_attrition_train.csv', header = T)
 
@@ -114,25 +115,29 @@ for (i in seq(p))
 
 processed_data = cbind(X,Y)
 
-train_size = 0.8
+train_size = 0.75
 train_indices = sample(num_obs, num_obs * train_size)
 
 wt = rep(1, num_obs * train_size)
 wt[Y[train_indices] == "Yes"] = 3
 
+decision_boundary = 0.3
 
 ######### logistic fitting - baseline ################
 glm.fit = glm(Y ~ ., data = processed_data, family = "binomial", 
               subset = train_indices)
 glm.probs <- predict(glm.fit,type = "response", 
                      newdata = processed_data[-train_indices,])
-glm.pred <- ifelse(glm.probs > 0.35, "Yes", "No")
+glm.pred <- ifelse(glm.probs > decision_boundary, "Yes", "No")
 table(glm.pred, Y[-train_indices])
 plot_df = data.frame(glm.probs, Y[-train_indices])
 plot_df %>% 
   ggplot(aes(x = glm.probs, color = Y..train_indices.)) + 
   geom_boxplot() + xlab("logistic regression output") + 
-  labs(color = "Attrition")
+  labs(color = "Attrition") +
+  geom_vline(xintercept = decision_boundary) +
+  annotate(geom="text", x=decision_boundary + .2, y=-0.05, 
+           label="Decision Boundary", color="black")
 
 ######## logistic fitting - with different class weights ###############
 
@@ -141,16 +146,71 @@ glm.fit1 = glm(Y ~ ., data = processed_data[train_indices,],
               family = "binomial", weights = wt)
 glm.probs <- predict(glm.fit1,type = "response", 
                      newdata = processed_data[-train_indices,])
-glm.pred <- ifelse(glm.probs > 0.35, "Yes", "No")
+glm.pred <- ifelse(glm.probs > decision_boundary, "Yes", "No")
 table(glm.pred, Y[-train_indices])
 plot_df = data.frame(glm.probs, Y[-train_indices])
 plot_df %>% 
   ggplot(aes(x = glm.probs, color = Y..train_indices.)) + 
   geom_boxplot() + xlab("logistic regression output") + 
   labs(color = "Attrition") +
-  geom_vline(xintercept = 0.35) +
-  annotate(geom="text", x=0.55, y=-0.05, 
+  geom_vline(xintercept = decision_boundary) +
+  annotate(geom="text", x=decision_boundary + 0.2, y=-0.05, 
            label="Decision Boundary", color="black")
+
+
+######## logistic fitting - lasso ###############
+
+alpha = .06
+lasso_model_matric = model.matrix(~ .,data = X)
+
+glm.fit2 = glmnet(lasso_model_matric, Y, subset = train_indices, 
+                  family = "binomial", alpha = alpha)
+glm.probs <- predict(glm.fit2,type = "response", 
+                     newx = lasso_model_matric[-train_indices,], 
+                     s = alpha)
+glm.pred <- ifelse(glm.probs > decision_boundary, "Yes", "No")
+table(glm.pred, Y[-train_indices])
+plot_df = data.frame(glm.probs, Y[-train_indices])
+plot_df %>% 
+  ggplot(aes(x = glm.probs, color = Y..train_indices.)) + 
+  geom_boxplot() + xlab("logistic regression output") + 
+  labs(color = "Attrition") +
+  geom_vline(xintercept = decision_boundary) +
+  annotate(geom="text", x=decision_boundary + 0.2, y=-0.05, 
+           label="Decision Boundary", color="black")
+coef(glm.fit2, s = alpha)
+
+
+
+
+######## lr mode with interaction ##############
+
+###### backward without weights###########
+lr_models = model.matrix(Y ~ ., data = processed_data)
+lr_models = data.frame(Y, lr_models)
+
+lr_models_train = lr_models[train_indices,]
+lr_models_test = lr_models[-train_indices,]
+
+full1 = glm(Y ~ ., data = lr_models_train, family = "binomial")
+null1 = glm(Y ~ 1, data = lr_models_train, family = "binomial")
+
+regBackward = step(full1, direction="backward", k = log(num_obs))
+glm.probs <- predict(regBackward,type = "response", 
+                     newdata = lr_models_test)
+glm.pred <- ifelse(glm.probs > decision_boundary, "Yes", "No")
+table(glm.pred, Y[-train_indices])
+plot_df = data.frame(glm.probs, Y[-train_indices])
+plot_df %>% 
+  ggplot(aes(x = glm.probs, color = Y..train_indices.)) + 
+  geom_boxplot() + xlab("logistic regression output") + 
+  labs(color = "Attrition") +
+  geom_vline(xintercept = decision_boundary) +
+  annotate(geom="text", x=decision_boundary + 0.2, y=-0.05, 
+           label="Decision Boundary", color="black")
+
+mat  = cor(X[,-categorical_var_indices])
+corrplot(mat, method="circle")
 
 #############backward with validation set - without interaction##########
 lr_models2 = model.matrix(Y ~ ., data = processed_data)
@@ -166,54 +226,13 @@ null2 = glm(Y ~ 1, data = lr_models_train1,
 regBackward1 = step(full2, direction="backward", k = log(num_obs))
 glm.probs <- predict(regBackward1,type = "response", 
                      newdata = lr_models_test1)
-glm.pred <- ifelse(glm.probs > 0.35, "Yes", "No")
+glm.pred <- ifelse(glm.probs > decision_boundary, "Yes", "No")
 table(glm.pred, Y[-train_indices])
 plot_df = data.frame(glm.probs, Y[-train_indices])
 plot_df %>% 
   ggplot(aes(x = glm.probs, color = Y..train_indices.)) + 
   geom_boxplot() + xlab("logistic regression output") + 
   labs(color = "Attrition") +
-  geom_vline(xintercept = 0.35) +
-  annotate(geom="text", x=0.55, y=-0.05, 
+  geom_vline(xintercept = decision_boundary) +
+  annotate(geom="text", x=decision_boundary + 0.2, y=-0.05, 
            label="Decision Boundary", color="black")
-
-######## lr mode with interaction ##############
-
-## forward
-lr_models = model.matrix(Y ~ . * Gender, 
-                         data = processed_data)
-lr_models = data.frame(Y, lr_models)
-
-lr_models_train = lr_models[train_indices,]
-lr_models_test = lr_models[-train_indices,]
-
-full1 = glm(Y ~ ., data = lr_models_train, 
-            family = "binomial", weights = wt)
-null1 = glm(Y ~ 1, data = lr_models_train, 
-           family = "binomial", weights = wt)
-
-regForward1 = step(null1, scope=formula(full1), direction="both", 
-                   k = log(num_obs))
-glm.probs <- predict(regForward1,type = "response", 
-                     newdata = lr_models_test)
-glm.pred <- ifelse(glm.probs > 0.5, "Yes", "No")
-table(glm.pred, Y[-train_indices])
-
-#backward with validation set
-regBackward = step(full1, direction="backward", k = log(num_obs))
-glm.probs <- predict(regBackward,type = "response", 
-                     newdata = lr_models_test)
-glm.pred <- ifelse(glm.probs > 0.5, "Yes", "No")
-table(glm.pred, Y[-train_indices])
-
-plot_df = data.frame(glm.probs, Y[-train_indices])
-plot_df %>% 
-  ggplot(aes(x = glm.probs, color = Y..train_indices.)) + 
-  geom_boxplot() + xlab("logistic regression output") + 
-  labs(color = "Attrition") +
-  geom_vline(xintercept = 0.35) +
-  annotate(geom="text", x=0.55, y=-0.05, 
-           label="Decision Boundary", color="black")
-
-mat  = cor(X[,-categorical_var_indices])
-corrplot(mat, method="circle")
