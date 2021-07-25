@@ -6,7 +6,7 @@ library(ggplot2)
 library(corrplot)
 library(glmnet)
 
-input_data = read.csv('archive/employee_attrition_train.csv', header = T)
+input_data = read.csv('full_data.csv', header = T)
 
 ## remove dummy variables
 
@@ -115,10 +115,10 @@ for (i in seq(p))
 
 processed_data = cbind(X,Y)
 
-train_size = 0.75
-train_indices = sample(num_obs, num_obs * train_size)
+#train_size = 0.75
+train_indices = c(1:1029)
 
-wt = rep(1, num_obs * train_size)
+wt = rep(1, length(train_indices))
 wt[Y[train_indices] == "Yes"] = 3
 
 decision_boundary = 0.3
@@ -160,14 +160,15 @@ plot_df %>%
 
 ######## logistic fitting - lasso ###############
 
-alpha = .06
+alpha = 1
+lambda = 0.01
 lasso_model_matric = model.matrix(~ .,data = X)
 
 glm.fit2 = glmnet(lasso_model_matric, Y, subset = train_indices, 
                   family = "binomial", alpha = alpha)
 glm.probs <- predict(glm.fit2,type = "response", 
                      newx = lasso_model_matric[-train_indices,], 
-                     s = alpha)
+                     s = lambda)
 glm.pred <- ifelse(glm.probs > decision_boundary, "Yes", "No")
 table(glm.pred, Y[-train_indices])
 plot_df = data.frame(glm.probs, Y[-train_indices])
@@ -178,7 +179,7 @@ plot_df %>%
   geom_vline(xintercept = decision_boundary) +
   annotate(geom="text", x=decision_boundary + 0.2, y=-0.05, 
            label="Decision Boundary", color="black")
-coef(glm.fit2, s = alpha)
+coef(glm.fit2, s = lambda)
 
 
 
