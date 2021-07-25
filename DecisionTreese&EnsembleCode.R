@@ -34,8 +34,8 @@ count1 <- count[count$`colSums(is.na(train))`>0,]
 ## Also renaming of age variable
 train1 <- train[,- which(names(train) %in% c("EmployeeCount", "StandardHours"))]
 train1$Over18 <- NULL
-train1$Age <- train1$ï..Age
-train1$ï..Age <- NULL
+train1$Age <- train1$Ã¯..Age
+train1$Ã¯..Age <- NULL
 train1$EmployeeNumber <- NULL
 
 ##Addition of variables based on EDA and analysis in Excel
