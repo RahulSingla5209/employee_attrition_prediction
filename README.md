@@ -1,1 +1,1 @@
-# employee_attrition_prediction
+# Employee_Attrition_Prediction
