@@ -181,7 +181,7 @@ xgb1 <- xgboost(data = dtrain, max.depth = 10, eta = 0.1, nthread = 2, nrounds =
 dtest <- xgb.DMatrix(data = new_test, label = new_labte)
 pred1<- predict(xgb1, dtest)
 xgbpred1 <- ifelse (pred1 > 0.8,1,0)
-cm <- table(new_labte, xgbpred)
+cm <- table(new_labte, xgbpred1)
 accuracy <- sum(diag(cm))/sum(cm)
 accuracy
 
@@ -202,7 +202,7 @@ xgb1 <- xgboost(data = dtrain, max.depth = 2, eta = 0.1, nthread = 2, nrounds = 
 dtest <- xgb.DMatrix(data = new_test, label = new_labte)
 pred2<- predict(xgb1, dtest)
 xgbpred2 <- ifelse (pred1 > 0.8,1,0)
-cm <- table(new_labte, xgbpred)
+cm <- table(new_labte, xgbpred2)
 accuracy <- sum(diag(cm))/sum(cm)
 accuracy
 
